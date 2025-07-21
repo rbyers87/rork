@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { Shift, RecurringShift, ShiftAssignment, SwapRequest, OfficerAssignment } from '@/types/schedule';
 
@@ -39,60 +40,77 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
-      const { data: shiftsData, error: shiftsError } = await supabase
-        .from('shifts')
-        .select('*')
-        .order('start_time', { ascending: true });
+      // Try to fetch from Supabase first
+      try {
+        const { data: shiftsData, error: shiftsError } = await supabase
+          .from('shifts')
+          .select('*')
+          .order('start_time', { ascending: true });
 
-      if (shiftsError) throw shiftsError;
+        if (shiftsError) throw shiftsError;
 
-      const { data: assignmentsData, error: assignmentsError } = await supabase
-        .from('shift_assignments')
-        .select('*');
+        const { data: assignmentsData, error: assignmentsError } = await supabase
+          .from('shift_assignments')
+          .select('*');
 
-      if (assignmentsError) throw assignmentsError;
+        if (assignmentsError) throw assignmentsError;
 
-      // Transform database data to app format
-      const shifts = shiftsData.map(shift => {
-        const shiftAssignments = assignmentsData.filter(a => a.shift_id === shift.id);
-        const officers = shiftAssignments.map(a => a.officer_id);
-        const assignments = shiftAssignments.map(a => ({
-          officerId: a.officer_id,
-          beatId: a.beat_id,
-          carId: a.car_id,
-          notes: a.notes,
-        }));
+        // Transform database data to app format
+        const shifts = shiftsData.map(shift => {
+          const shiftAssignments = assignmentsData.filter(a => a.shift_id === shift.id);
+          const officers = shiftAssignments.map(a => a.officer_id);
+          const assignments = shiftAssignments.map(a => ({
+            officerId: a.officer_id,
+            beatId: a.beat_id,
+            carId: a.car_id,
+            notes: a.notes,
+          }));
 
-        const baseShift = {
-          id: shift.id,
-          title: shift.title,
-          type: shift.type as any,
-          startTime: shift.start_time,
-          endTime: shift.end_time,
-          officers,
-          assignments,
-          location: shift.location,
-          notes: shift.notes,
-          color: shift.color,
-        };
+          const baseShift = {
+            id: shift.id,
+            title: shift.title,
+            type: shift.type as any,
+            startTime: shift.start_time,
+            endTime: shift.end_time,
+            officers,
+            assignments,
+            location: shift.location,
+            notes: shift.notes,
+            color: shift.color,
+          };
 
-        if (shift.is_recurring) {
-          return {
-            ...baseShift,
-            recurrence: {
-              pattern: shift.recurrence_pattern as any,
-              interval: shift.recurrence_interval || 1,
-              daysOfWeek: shift.recurrence_days_of_week,
-              endsOn: shift.recurrence_ends_on,
-              exceptions: shift.recurrence_exceptions || [],
-            },
-          } as RecurringShift;
-        }
+          if (shift.is_recurring) {
+            return {
+              ...baseShift,
+              recurrence: {
+                pattern: shift.recurrence_pattern as any,
+                interval: shift.recurrence_interval || 1,
+                daysOfWeek: shift.recurrence_days_of_week,
+                endsOn: shift.recurrence_ends_on,
+                exceptions: shift.recurrence_exceptions || [],
+              },
+            } as RecurringShift;
+          }
 
-        return baseShift as Shift;
-      });
+          return baseShift as Shift;
+        });
 
-      set({ shifts, isLoading: false });
+        // Save to local storage as backup
+        await AsyncStorage.setItem('shifts', JSON.stringify(shifts));
+        set({ shifts, isLoading: false });
+      } catch (supabaseError) {
+        console.warn('Supabase fetch failed, trying local storage:', supabaseError);
+        
+        // Fallback to local storage
+        const storedShifts = await AsyncStorage.getItem('shifts');
+        const shifts = storedShifts ? JSON.parse(storedShifts) : [];
+        
+        set({ 
+          shifts, 
+          isLoading: false,
+          error: shifts.length === 0 ? 'Unable to connect to database. Please check your internet connection.' : null
+        });
+      }
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch shifts',
@@ -107,47 +125,59 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
       
       const isRecurring = 'recurrence' in shift;
       
-      const { data: shiftData, error: shiftError } = await supabase
-        .from('shifts')
-        .insert({
-          id: shift.id,
-          title: shift.title,
-          type: shift.type,
-          start_time: shift.startTime,
-          end_time: shift.endTime,
-          location: shift.location,
-          notes: shift.notes,
-          color: shift.color,
-          is_recurring: isRecurring,
-          recurrence_pattern: isRecurring ? shift.recurrence.pattern : null,
-          recurrence_interval: isRecurring ? shift.recurrence.interval : null,
-          recurrence_days_of_week: isRecurring ? shift.recurrence.daysOfWeek : null,
-          recurrence_ends_on: isRecurring ? shift.recurrence.endsOn : null,
-          recurrence_exceptions: isRecurring ? shift.recurrence.exceptions : null,
-          created_by: 'current-user-id', // TODO: Get from auth store
-        })
-        .select()
-        .single();
+      try {
+        // Try to save to Supabase first
+        const { data: shiftData, error: shiftError } = await supabase
+          .from('shifts')
+          .insert({
+            id: shift.id,
+            title: shift.title,
+            type: shift.type,
+            start_time: shift.startTime,
+            end_time: shift.endTime,
+            location: shift.location,
+            notes: shift.notes,
+            color: shift.color,
+            is_recurring: isRecurring,
+            recurrence_pattern: isRecurring ? shift.recurrence.pattern : null,
+            recurrence_interval: isRecurring ? shift.recurrence.interval : null,
+            recurrence_days_of_week: isRecurring ? shift.recurrence.daysOfWeek : null,
+            recurrence_ends_on: isRecurring ? shift.recurrence.endsOn : null,
+            recurrence_exceptions: isRecurring ? shift.recurrence.exceptions : null,
+            created_by: 'demo-user', // For demo purposes
+          })
+          .select()
+          .single();
 
-      if (shiftError) throw shiftError;
+        if (shiftError) throw shiftError;
 
-      // Add officer assignments
-      if (shift.officers.length > 0) {
-        const assignments = shift.officers.map(officerId => ({
-          shift_id: shift.id,
-          officer_id: officerId,
-          status: 'assigned' as const,
-          assigned_at: new Date().toISOString(),
-        }));
+        // Add officer assignments
+        if (shift.officers.length > 0) {
+          const assignments = shift.officers.map(officerId => ({
+            shift_id: shift.id,
+            officer_id: officerId,
+            status: 'assigned' as const,
+            assigned_at: new Date().toISOString(),
+          }));
 
-        const { error: assignmentError } = await supabase
-          .from('shift_assignments')
-          .insert(assignments);
+          const { error: assignmentError } = await supabase
+            .from('shift_assignments')
+            .insert(assignments);
 
-        if (assignmentError) throw assignmentError;
+          if (assignmentError) throw assignmentError;
+        }
+
+        await get().fetchShifts();
+      } catch (supabaseError) {
+        console.warn('Supabase save failed, saving locally:', supabaseError);
+        
+        // Fallback to local storage
+        const currentShifts = get().shifts;
+        const updatedShifts = [...currentShifts, shift];
+        
+        await AsyncStorage.setItem('shifts', JSON.stringify(updatedShifts));
+        set({ shifts: updatedShifts, isLoading: false });
       }
-
-      await get().fetchShifts();
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to add shift',
@@ -160,61 +190,75 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
-      const updateData: any = {};
-      
-      if (updatedShift.title) updateData.title = updatedShift.title;
-      if (updatedShift.type) updateData.type = updatedShift.type;
-      if (updatedShift.startTime) updateData.start_time = updatedShift.startTime;
-      if (updatedShift.endTime) updateData.end_time = updatedShift.endTime;
-      if (updatedShift.location !== undefined) updateData.location = updatedShift.location;
-      if (updatedShift.notes !== undefined) updateData.notes = updatedShift.notes;
-      if (updatedShift.color) updateData.color = updatedShift.color;
-      
-      if ('recurrence' in updatedShift && updatedShift.recurrence) {
-        updateData.is_recurring = true;
-        updateData.recurrence_pattern = updatedShift.recurrence.pattern;
-        updateData.recurrence_interval = updatedShift.recurrence.interval;
-        updateData.recurrence_days_of_week = updatedShift.recurrence.daysOfWeek;
-        updateData.recurrence_ends_on = updatedShift.recurrence.endsOn;
-        updateData.recurrence_exceptions = updatedShift.recurrence.exceptions;
-      }
-
-      const { error } = await supabase
-        .from('shifts')
-        .update(updateData)
-        .eq('id', id);
-
-      if (error) throw error;
-
-      // Handle assignments update
-      if (updatedShift.assignments) {
-        // Delete existing assignments
-        await supabase
-          .from('shift_assignments')
-          .delete()
-          .eq('shift_id', id);
-
-        // Insert new assignments
-        if (updatedShift.assignments.length > 0) {
-          const assignments = updatedShift.assignments.map(assignment => ({
-            shift_id: id,
-            officer_id: assignment.officerId,
-            beat_id: assignment.beatId,
-            car_id: assignment.carId,
-            notes: assignment.notes,
-            status: 'assigned' as const,
-            assigned_at: new Date().toISOString(),
-          }));
-
-          const { error: assignmentError } = await supabase
-            .from('shift_assignments')
-            .insert(assignments);
-
-          if (assignmentError) throw assignmentError;
+      try {
+        // Try Supabase first
+        const updateData: any = {};
+        
+        if (updatedShift.title) updateData.title = updatedShift.title;
+        if (updatedShift.type) updateData.type = updatedShift.type;
+        if (updatedShift.startTime) updateData.start_time = updatedShift.startTime;
+        if (updatedShift.endTime) updateData.end_time = updatedShift.endTime;
+        if (updatedShift.location !== undefined) updateData.location = updatedShift.location;
+        if (updatedShift.notes !== undefined) updateData.notes = updatedShift.notes;
+        if (updatedShift.color) updateData.color = updatedShift.color;
+        
+        if ('recurrence' in updatedShift && updatedShift.recurrence) {
+          updateData.is_recurring = true;
+          updateData.recurrence_pattern = updatedShift.recurrence.pattern;
+          updateData.recurrence_interval = updatedShift.recurrence.interval;
+          updateData.recurrence_days_of_week = updatedShift.recurrence.daysOfWeek;
+          updateData.recurrence_ends_on = updatedShift.recurrence.endsOn;
+          updateData.recurrence_exceptions = updatedShift.recurrence.exceptions;
         }
-      }
 
-      await get().fetchShifts();
+        const { error } = await supabase
+          .from('shifts')
+          .update(updateData)
+          .eq('id', id);
+
+        if (error) throw error;
+
+        // Handle assignments update
+        if (updatedShift.assignments) {
+          // Delete existing assignments
+          await supabase
+            .from('shift_assignments')
+            .delete()
+            .eq('shift_id', id);
+
+          // Insert new assignments
+          if (updatedShift.assignments.length > 0) {
+            const assignments = updatedShift.assignments.map(assignment => ({
+              shift_id: id,
+              officer_id: assignment.officerId,
+              beat_id: assignment.beatId,
+              car_id: assignment.carId,
+              notes: assignment.notes,
+              status: 'assigned' as const,
+              assigned_at: new Date().toISOString(),
+            }));
+
+            const { error: assignmentError } = await supabase
+              .from('shift_assignments')
+              .insert(assignments);
+
+            if (assignmentError) throw assignmentError;
+          }
+        }
+
+        await get().fetchShifts();
+      } catch (supabaseError) {
+        console.warn('Supabase update failed, updating locally:', supabaseError);
+        
+        // Fallback to local storage
+        const currentShifts = get().shifts;
+        const updatedShifts = currentShifts.map(shift => 
+          shift.id === id ? { ...shift, ...updatedShift } : shift
+        );
+        
+        await AsyncStorage.setItem('shifts', JSON.stringify(updatedShifts));
+        set({ shifts: updatedShifts, isLoading: false });
+      }
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to update shift',
@@ -227,21 +271,33 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
-      // Delete assignments first
-      await supabase
-        .from('shift_assignments')
-        .delete()
-        .eq('shift_id', id);
+      try {
+        // Try Supabase first
+        // Delete assignments first
+        await supabase
+          .from('shift_assignments')
+          .delete()
+          .eq('shift_id', id);
 
-      // Delete shift
-      const { error } = await supabase
-        .from('shifts')
-        .delete()
-        .eq('id', id);
+        // Delete shift
+        const { error } = await supabase
+          .from('shifts')
+          .delete()
+          .eq('id', id);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      await get().fetchShifts();
+        await get().fetchShifts();
+      } catch (supabaseError) {
+        console.warn('Supabase delete failed, deleting locally:', supabaseError);
+        
+        // Fallback to local storage
+        const currentShifts = get().shifts;
+        const updatedShifts = currentShifts.filter(shift => shift.id !== id);
+        
+        await AsyncStorage.setItem('shifts', JSON.stringify(updatedShifts));
+        set({ shifts: updatedShifts, isLoading: false });
+      }
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to delete shift',
