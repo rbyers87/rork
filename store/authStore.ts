@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
-import { Officer } from '../types/schedule';
+import { supabase } from '@/lib/supabase';
+import { Officer } from '@/types/schedule';
 
 interface AuthState {
   user: Officer | null;
@@ -139,6 +139,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 // Listen for auth changes
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_OUT') {
-    useAuthStore.getState().logout();
+    useAuthStore.setState({
+      user: null,
+      isAuthenticated: false,
+      isAdmin: false,
+      isLoading: false,
+    });
   }
 });
