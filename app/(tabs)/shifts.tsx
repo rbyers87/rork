@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, FlatList, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, FlatList, Pressable, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Plus, Filter } from 'lucide-react-native';
 import { useScheduleStore } from '@/store/scheduleStore';
@@ -9,8 +9,12 @@ import Button from '@/components/Button';
 
 export default function ShiftsScreen() {
   const router = useRouter();
-  const { shifts } = useScheduleStore();
+  const { shifts, fetchShifts, isLoading, error, clearError } = useScheduleStore();
   const [filter, setFilter] = useState<'all' | 'recurring' | 'upcoming'>('all');
+
+  useEffect(() => {
+    fetchShifts();
+  }, []);
 
   const filteredShifts = () => {
     if (filter === 'all') return shifts;
@@ -30,6 +34,34 @@ export default function ShiftsScreen() {
   const handleCreateShift = () => {
     router.push('/shifts/create');
   };
+
+  const handleRetry = () => {
+    clearError();
+    fetchShifts();
+  };
+
+  if (isLoading && shifts.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading shifts...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorTitle}>Error Loading Shifts</Text>
+        <Text style={styles.errorText}>{error}</Text>
+        <Button 
+          title="Retry"
+          onPress={handleRetry}
+          variant="primary"
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -78,6 +110,8 @@ export default function ShiftsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.shiftsList}
           showsVerticalScrollIndicator={false}
+          refreshing={isLoading}
+          onRefresh={fetchShifts}
         />
       ) : (
         <View style={styles.emptyState}>
@@ -151,6 +185,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text.secondary,
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Colors.text.secondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: Colors.background,
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.error,
+    marginBottom: 8,
+  },
+  errorText: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: 24,
     lineHeight: 20,
   },
 });
