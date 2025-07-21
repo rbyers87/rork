@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Officer } from '@/types/schedule';
+import { Database } from '@/types/database';
+
+type OfficerInsert = Database['public']['Tables']['officers']['Insert'];
 
 export function useOfficers() {
   const [officers, setOfficers] = useState<Officer[]>([]);
@@ -44,6 +47,38 @@ export function useOfficers() {
     }
   };
 
+  const createOfficer = async (officerData: OfficerInsert): Promise<Officer> => {
+    const { data, error } = await supabase
+      .from('officers')
+      .insert(officerData)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const newOfficer: Officer = {
+      id: data.id,
+      name: data.name,
+      badge: data.badge,
+      rank: data.rank,
+      department: data.department,
+      email: data.email,
+      phone: data.phone,
+      avatar: data.avatar,
+      isSupervisor: data.is_supervisor,
+      ptoBalances: {
+        vacation: data.vacation_balance || 0,
+        holiday: data.holiday_balance || 0,
+        sick: data.sick_balance || 0,
+      },
+    };
+
+    // Refresh the officers list
+    await fetchOfficers();
+    
+    return newOfficer;
+  };
+
   useEffect(() => {
     fetchOfficers();
   }, []);
@@ -53,5 +88,6 @@ export function useOfficers() {
     isLoading,
     error,
     refetch: fetchOfficers,
+    createOfficer,
   };
 }
