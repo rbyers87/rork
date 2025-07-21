@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Text, FlatList, Pressable, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Search } from 'lucide-react-native';
+import { Search, Plus } from 'lucide-react-native';
 import { TextInput } from 'react-native';
 import { useOfficers } from '@/hooks/useOfficers';
 import Colors from '@/constants/colors';
@@ -50,15 +50,23 @@ export default function OfficersScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.searchContainer}>
-        <Search size={20} color={Colors.text.secondary} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search officers"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor={Colors.text.light}
-        />
+      <View style={styles.header}>
+        <View style={styles.searchContainer}>
+          <Search size={20} color={Colors.text.secondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search officers"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={Colors.text.light}
+          />
+        </View>
+        <Pressable 
+          style={styles.createButton}
+          onPress={() => router.push('/officers/create')}
+        >
+          <Plus size={20} color={Colors.primary} />
+        </Pressable>
       </View>
       
       <FlatList
@@ -95,13 +103,29 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     padding: 16,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
   searchContainer: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
-    marginBottom: 16,
+  },
+  createButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.primary,
   },
   searchInput: {
     flex: 1,
