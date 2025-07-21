@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Mail, Phone, Calendar, Clock, Award } from 'lucide-react-native';
 import { useScheduleStore } from '@/store/scheduleStore';
 import { useTimeOffStore } from '@/store/timeOffStore';
 import { Officer } from '@/types/schedule';
-import { officers } from '@/mocks/officers';
+import { supabase } from '@/lib/supabase';
 import { formatDateTimeRange } from '@/utils/dateUtils';
 import Colors from '@/constants/colors';
 import OfficerAvatar from '@/components/OfficerAvatar';
@@ -17,14 +17,48 @@ export default function OfficerDetailScreen() {
   const { shifts } = useScheduleStore();
   const { getTimeOffByOfficer } = useTimeOffStore();
   const [officer, setOfficer] = useState<Officer | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
-    if (id) {
-      const foundOfficer = officers.find(o => o.id === id);
-      if (foundOfficer) {
-        setOfficer(foundOfficer);
+    const fetchOfficer = async () => {
+      if (!id) return;
+      
+      try {
+        setIsLoading(true);
+        const { data, error } = await supabase
+          .from('officers')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (error) throw error;
+
+        const officerData: Officer = {
+          id: data.id,
+          name: data.name,
+          badge: data.badge,
+          rank: data.rank,
+          department: data.department,
+          email: data.email,
+          phone: data.phone,
+          avatar: data.avatar,
+          isSupervisor: data.is_supervisor,
+          ptoBalances: {
+            vacation: data.vacation_balance || 0,
+            holiday: data.holiday_balance || 0,
+            sick: data.sick_balance || 0,
+          },
+        };
+
+        setOfficer(officerData);
+      } catch (error) {
+        console.error('Error fetching officer:', error);
+      } finally {
+        setIsLoading(false);
       }
-    }
+    };
+
+    fetchOfficer();
   }, [id]);
   
   const officerShifts = shifts.filter(shift => 
@@ -40,6 +74,15 @@ export default function OfficerDetailScreen() {
   const timeOffRequests = getTimeOffByOfficer(id as string);
   const approvedTimeOff = timeOffRequests.filter(req => req.status === 'approved');
   
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading officer details...</Text>
+      </View>
+    );
+  }
+
   if (!officer) {
     return (
       <View style={styles.container}>
@@ -408,6 +451,17 @@ const styles = StyleSheet.create({
   statDivider: {
     width: 1,
     backgroundColor: Colors.border,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Colors.text.secondary,
   },
   notFound: {
     fontSize: 18,
